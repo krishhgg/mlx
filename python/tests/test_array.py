@@ -1,6 +1,7 @@
 # Copyright © 2023-2024 Apple Inc.
 
 import operator
+import os
 import pickle
 import platform
 import sys
@@ -1886,6 +1887,59 @@ class TestArray(mlx_tests.MLXTestCase):
             x = mx.random.normal((16, cols))
             z = y.at[:16, :].add(x)
             self.assertTrue(mx.allclose(z[:16, :] - x, mx.zeros_like(x)))
+
+    @unittest.skipIf("CI" in os.environ, "Allocates too much memory for CI")
+    def test_slice_update_large_offset(self):
+        # The update has rows * width elements, under 2**31. The last written
+        # output offset, (rows - 1) * cols + (width - 1), is past 2**31.
+        # A 32-bit index wraps and can mutate the input. See issue 4782.
+        rows = 2**21 + 1
+        cols = 1024
+        width = 8
+        need = rows * cols * 2 + 512 * 1024**2
+        avail = None
+        if sys.platform == "linux":
+            try:
+                with open("/proc/meminfo", encoding="ascii") as meminfo:
+                    for line in meminfo:
+                        if line.startswith("MemAvailable:"):
+                            avail = int(line.split()[1]) * 1024
+                            break
+            except OSError:
+                avail = None
+        if avail is not None and avail < need:
+            self.skipTest("not enough free memory")
+
+        x = mx.ones((rows, cols), dtype=mx.uint8)
+        mx.eval(x)
+        base = x.size
+        prefix = [2] * width + [1, 1]
+
+        def check(y):
+            mx.eval(y)
+            self.assertEqual(y[0, : width + 2].tolist(), prefix)
+            # Row -2 still fits in int32. Row -1 starts at offset 2**31.
+            self.assertEqual(y[-2, : width + 2].tolist(), prefix)
+            self.assertEqual(y[-1, : width + 2].tolist(), prefix)
+            self.assertEqual(mx.sum(y).item(), base + rows * width)
+            self.assertEqual(mx.sum(x).item(), base)
+            self.assertEqual(x[-1, 0].item(), 1)
+
+        y = x.at[:, :width].add(1)
+        check(y)
+        del y
+        mx.clear_cache()
+
+        y = x.at[:, :width].add(mx.ones((rows, width), dtype=mx.uint8))
+        check(y)
+        del y
+        mx.clear_cache()
+
+        # Negative column stride. The row offset is still past 2**31.
+        y = x.at[:, width - 1 :: -1].add(1)
+        check(y)
+        del y
+        mx.clear_cache()
 
     def test_slice_negative_step(self):
         a_np = np.arange(20)

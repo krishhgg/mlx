@@ -8,6 +8,7 @@
 
 #include "doctest/doctest.h"
 
+#include "mlx/backend/common/slicing.h"
 #include "mlx/backend/cuda/cuda.h"
 #include "mlx/mlx.h"
 #include "mlx/primitives.h"
@@ -402,6 +403,27 @@ TEST_CASE("test slice update") {
   out = reshape(out, {8});
   CHECK(array_equal(slice(out, {0}, {4}, {1}), y).item<bool>());
   CHECK(array_equal(slice(out, {4}, {8}, {1}), y).item<bool>());
+}
+
+TEST_CASE("test slice update offset int32 limit") {
+  // Same shape as issue 4782. The update fits in int32. The last output
+  // offset is (2**21) * 1024 + 7, which does not.
+  int32_t rows = (1 << 21) + 1;
+  CHECK(offsets_exceed_int32(Shape{rows, 8}, Strides{1024, 1}));
+  CHECK(offsets_exceed_int32(Shape{rows, 8}, Strides{1024, -1}));
+
+  // One row fewer stays inside int32: (2**21 - 1) * 1024 + 7.
+  CHECK_FALSE(offsets_exceed_int32(Shape{rows - 1, 8}, Strides{1024, 1}));
+
+  CHECK_FALSE(offsets_exceed_int32(Shape{2, 1}, Strides{INT32_MAX, 1}));
+  CHECK(offsets_exceed_int32(
+      Shape{2, 1}, Strides{static_cast<int64_t>(INT32_MAX) + 1, 1}));
+  CHECK_FALSE(offsets_exceed_int32(Shape{2, 1}, Strides{INT32_MIN, 1}));
+  CHECK(offsets_exceed_int32(
+      Shape{2, 1}, Strides{static_cast<int64_t>(INT32_MIN) - 1, 1}));
+
+  CHECK_FALSE(offsets_exceed_int32(Shape{4, 8}, Strides{0, 0}));
+  CHECK_FALSE(offsets_exceed_int32(Shape{}, Strides{}));
 }
 
 TEST_CASE("test slice update add") {

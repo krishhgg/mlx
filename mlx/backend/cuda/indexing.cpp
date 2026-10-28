@@ -637,7 +637,10 @@ void SliceUpdate::eval_gpu(const std::vector<array>& inputs, array& out) {
   bool upd_contiguous = upd.flags().row_contiguous;
   bool upd_scalar = upd.data_size() == 1;
   bool out_contiguous = rc;
-  bool large = exceeds_int32(upd);
+  // IdxT must cover output offsets. The launch grid follows the update,
+  // because a broadcast update has a large logical size and zero strides.
+  bool large_upd = exceeds_int32(upd);
+  bool large = large_upd || offsets_exceed_int32(shape, strides[1]);
   std::string module_name =
       fmt::format("slice_update_{}_{}", op_name, dtype_to_string(out.dtype()));
 
@@ -695,7 +698,7 @@ void SliceUpdate::eval_gpu(const std::vector<array>& inputs, array& out) {
       nwork);
 
   auto kernel = mod.get_kernel(kernel_name);
-  auto [num_blocks, block_dims] = get_launch_args(upd, large, nwork);
+  auto [num_blocks, block_dims] = get_launch_args(upd, large_upd, nwork);
   encoder.add_kernel_node_raw(
       kernel, num_blocks, block_dims, {}, 0, args.args());
 }
