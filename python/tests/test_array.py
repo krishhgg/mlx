@@ -1893,22 +1893,20 @@ class TestArray(mlx_tests.MLXTestCase):
         # The update has rows * width elements, under 2**31. The last written
         # output offset, (rows - 1) * cols + (width - 1), is past 2**31.
         # A 32-bit index wraps and can mutate the input. See issue 4782.
+        # CPU indexing is already 64-bit, so this only checks the GPU kernels.
+        if mx.default_device() == mx.cpu:
+            self.skipTest("requires GPU")
+
         rows = 2**21 + 1
         cols = 1024
         width = 8
-        need = rows * cols * 2 + 512 * 1024**2
-        avail = None
-        if sys.platform == "linux":
-            try:
-                with open("/proc/meminfo", encoding="ascii") as meminfo:
-                    for line in meminfo:
-                        if line.startswith("MemAvailable:"):
-                            avail = int(line.split()[1]) * 1024
-                            break
-            except OSError:
-                avail = None
-        if avail is not None and avail < need:
-            self.skipTest("not enough free memory")
+        # Two uint8 copies of the array are live. On Apple Silicon, memory_size
+        # is the unified-memory total (hw.memsize). Leave room for the OS.
+        if platform.system() == "Darwin":
+            memsize = mx.device_info().get("memory_size")
+            need = rows * cols * 2 + 8 * 1024**3
+            if isinstance(memsize, int) and memsize < need:
+                self.skipTest("not enough unified memory")
 
         x = mx.ones((rows, cols), dtype=mx.uint8)
         mx.eval(x)
