@@ -3957,6 +3957,58 @@ class TestOps(mlx_tests.MLXTestCase):
         self.assertTrue(mx.array_equal(q, mx.array([-4.0, -4.0, -4.0, -4.0])))
         self.assertTrue(mx.array_equal(q * bf + r, af))
 
+    def test_signed_min_divided_by_negative_one(self):
+        # x86 traps when the most negative integer is divided by -1.
+        # The quotient wraps to the minimum and the remainder is 0.
+        dtypes = [
+            (mx.int8, np.int8),
+            (mx.int16, np.int16),
+            (mx.int32, np.int32),
+            (mx.int64, np.int64),
+        ]
+        for mx_dt, np_dt in dtypes:
+            with self.subTest(dtype=mx_dt):
+                lo = mx.iinfo(mx_dt).min
+                hi = mx.iinfo(mx_dt).max
+                a_np = np.array(
+                    [lo, lo + 1, -7, lo, hi, 7, -5, 1, 0],
+                    dtype=np_dt,
+                )
+                b_np = np.array([-1, -1, 2, 1, -1, -2, 3, -1, 4], dtype=np_dt)
+                a = mx.array(a_np)
+                b = mx.array(b_np)
+                self.assertEqual(a.dtype, mx_dt)
+
+                with np.errstate(over="ignore"):
+                    np_q = np.floor_divide(a_np, b_np)
+                    np_r = np.remainder(a_np, b_np)
+                    np_dq, np_dr = np.divmod(a_np, b_np)
+
+                self.assertEqual(mx.floor_divide(a, b).tolist(), np_q.tolist())
+                self.assertEqual(mx.remainder(a, b).tolist(), np_r.tolist())
+                q, r = mx.divmod(a, b)
+                self.assertEqual(q.tolist(), np_dq.tolist())
+                self.assertEqual(r.tolist(), np_dr.tolist())
+                self.assertEqual(q.dtype, mx_dt)
+                self.assertEqual(r.dtype, mx_dt)
+
+                # 0-d inputs and a scalar divisor use other CPU loops.
+                a0 = mx.array(lo, dtype=mx_dt)
+                b0 = mx.array(-1, dtype=mx_dt)
+                self.assertEqual(mx.floor_divide(a0, b0).item(), int(lo))
+                self.assertEqual(mx.remainder(a0, b0).item(), 0)
+                q0, r0 = mx.divmod(a0, b0)
+                self.assertEqual(q0.item(), int(lo))
+                self.assertEqual(r0.item(), 0)
+
+                mins = mx.full((4,), lo, dtype=mx_dt)
+                neg = mx.array(-1, dtype=mx_dt)
+                self.assertEqual(mx.floor_divide(mins, neg).tolist(), [lo] * 4)
+                self.assertEqual(mx.remainder(mins, neg).tolist(), [0] * 4)
+                qv, rv = mx.divmod(mins, neg)
+                self.assertEqual(qv.tolist(), [lo] * 4)
+                self.assertEqual(rv.tolist(), [0] * 4)
+
     def test_tile(self):
         self.assertCmpNumpy([(2,), [2]], mx.tile, np.tile)
         self.assertCmpNumpy([(2, 3, 4), [2]], mx.tile, np.tile)

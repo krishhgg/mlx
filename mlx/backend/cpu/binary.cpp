@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <limits>
 #include <sstream>
 #include <type_traits>
 
@@ -47,9 +48,18 @@ void DivMod::eval_cpu(
                     out_b = array::unsafe_weak_copy(out_b),
                     bopt]() mutable {
     auto integral_op = [](auto x, auto y) {
+      using T = decltype(x);
+      // min / -1 overflows. The quotient wraps to min. The remainder is 0.
+      // Use the type of x / y. int8 and int16 promote to int.
+      if constexpr (std::is_signed_v<T>) {
+        if (x == std::numeric_limits<T>::min() && y == T(-1)) {
+          using R = decltype(x / y);
+          return std::make_pair(static_cast<R>(x), static_cast<R>(0));
+        }
+      }
       auto q = x / y;
       auto r = x % y;
-      if constexpr (std::is_signed_v<decltype(x)>) {
+      if constexpr (std::is_signed_v<T>) {
         if (r != 0 && (r < 0) != (y < 0)) {
           q -= 1;
           r += y;
