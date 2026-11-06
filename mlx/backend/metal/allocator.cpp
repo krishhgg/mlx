@@ -164,7 +164,7 @@ Buffer MetalAllocator::malloc(size_t size) {
   }
 
   active_memory_ += buf->length();
-  peak_memory_ = std::max(peak_memory_, active_memory_);
+  peak_memory_ = std::max(peak_memory_.load(), active_memory_.load());
 
   // Maintain the cache below the requested limit
   if (get_cache_memory() > max_pool_size_) {
@@ -221,7 +221,7 @@ Buffer MetalAllocator::make_buffer(void* ptr, size_t size) {
   std::unique_lock lk(mutex_);
   residency_sets_.insert(buf);
   active_memory_ += buf->length();
-  peak_memory_ = std::max(peak_memory_, active_memory_);
+  peak_memory_ = std::max(peak_memory_.load(), active_memory_.load());
   num_resources_++;
   return Buffer{static_cast<void*>(buf)};
 }

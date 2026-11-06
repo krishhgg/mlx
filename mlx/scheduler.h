@@ -50,7 +50,7 @@ class MLX_API Scheduler {
   }
 
   int n_active_tasks() const {
-    return n_active_tasks_;
+    return n_active_tasks_.load(std::memory_order_relaxed);
   }
 
   void wait_for_one() {
@@ -68,7 +68,8 @@ class MLX_API Scheduler {
 
   StreamThread& get_thread(Stream s);
 
-  int n_active_tasks_{0};
+  // Change only while holding mtx, so wait_for_one does not miss an update.
+  std::atomic<int> n_active_tasks_{0};
   std::unordered_map<int, std::unique_ptr<StreamThread>> threads_;
   std::shared_mutex threads_mtx_;
   std::condition_variable completion_cv;
